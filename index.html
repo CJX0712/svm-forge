@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>svm-forge · 支持向量机与核方法实验室</title>
+<style>
+:root{
+  --bg:#f7f8fa; --panel:#ffffff; --line:#e3e6ec; --ink:#1b1f27; --dim:#68707e;
+  --pos:#c0392b; --neg:#1f6fb2; --sv:#e08a12; --band:#eef1f6; --ok:#178a53; --bad:#c0392b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:16px 22px}
+h1{margin:0;font-size:19px;letter-spacing:.2px}
+h1 small{font-weight:400;color:var(--dim);font-size:13px;margin-left:8px}
+.sub{margin:6px 0 0;color:var(--dim);font-size:13px}
+main{max-width:1180px;margin:0 auto;padding:18px 22px 60px}
+.grid{display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
+label.row{display:block;margin:10px 0 4px;font-size:12px;color:var(--dim)}
+label.row b{color:var(--ink);float:right;font-variant-numeric:tabular-nums}
+select,input[type=range]{width:100%}
+select{padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font:inherit}
+input[type=range]{margin:2px 0 0;accent-color:#1f6fb2}
+button{font:inherit;padding:7px 12px;border-radius:7px;border:1px solid var(--line);
+  background:#fff;color:var(--ink);cursor:pointer}
+button:hover{border-color:#c8cede}
+button.primary{background:#1f6fb2;border-color:#1f6fb2;color:#fff}
+button.primary:hover{background:#1a5f9b}
+canvas{display:block;width:100%;border-radius:8px;background:#fff}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:10px}
+.stat{background:var(--band);border-radius:8px;padding:8px 10px}
+.stat span{display:block;font-size:11px;color:var(--dim)}
+.stat b{font-size:16px;font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:500;font-size:12px}
+td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.ok{color:var(--ok);font-weight:600}
+.bad{color:var(--bad);font-weight:600}
+.note{color:var(--dim);font-size:12px;margin:8px 0 0}
+code{background:var(--band);padding:1px 5px;border-radius:4px;font-size:12px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin-top:8px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>svm-forge<small>支持向量机与核方法实验室</small></h1>
+  <p class="sub">SMO 训练 C-SVC，KKT 条件逐条验证；对偶最优另用「投影梯度上升」独立求解对拍，并用 10 万方向角网格给出最优性下界证书。</p>
+</header>
+<main>
+<div class="grid">
+  <aside>
+    <div class="card">
+      <h2>数据</h2>
+      <label class="row">场景</label>
+      <select id="inp-kind">
+        <option value="separable">线性可分（双高斯簇）</option>
+        <option value="overlap">重叠（软间隔必需）</option>
+        <option value="xor">XOR（线性不可分）</option>
+        <option value="moons">双月</option>
+        <option value="circles">同心圆</option>
+      </select>
+      <label class="row">样本数 <b id="v-n">80</b></label>
+      <input type="range" id="inp-n" min="20" max="200" step="10" value="80">
+      <label class="row">噪声 <b id="v-noise">0.10</b></label>
+      <input type="range" id="inp-noise" min="0" max="0.45" step="0.01" value="0.10">
+    </div>
+    <div class="card">
+      <h2>模型</h2>
+      <label class="row">核函数</label>
+      <select id="inp-kernel">
+        <option value="rbf">RBF exp(−γ‖x−z‖²)</option>
+        <option value="linear">线性 x·z</option>
+        <option value="poly">多项式 (x·z+1)^d</option>
+      </select>
+      <label class="row">C <b id="v-C">1.00</b></label>
+      <input type="range" id="inp-C" min="-2" max="3" step="0.05" value="0">
+      <label class="row">γ <b id="v-gamma">1.00</b></label>
+      <input type="range" id="inp-gamma" min="-2" max="2" step="0.05" value="0">
+      <label class="row">d <b id="v-deg">2</b></label>
+      <input type="range" id="inp-deg" min="2" max="5" step="1" value="2">
+    </div>
+    <div class="card">
+      <h2>操作</h2>
+      <button class="primary" id="btn-fit" style="width:100%">重新训练 SMO</button>
+      <p class="note">C、γ、d 用对数滑块；改核或场景会自动重训。</p>
+    </div>
+  </aside>
+
+  <section>
+    <div class="card">
+      <h2>决策边界</h2>
+      <canvas id="cv-main" height="360"></canvas>
+      <div class="legend">
+        <span><i style="background:#c0392b"></i>+1</span>
+        <span><i style="background:#1f6fb2"></i>−1</span>
+        <span><i style="background:#e08a12"></i>支持向量（α&gt;0）</span>
+        <span><i style="background:#8a94a6"></i>间隔带（|f|≤1）</span>
+      </div>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+      <div class="card" style="margin:0">
+        <h2>对偶目标收敛（SMO 每步）</h2>
+        <canvas id="cv-obj" height="170"></canvas>
+        <p class="note" id="objnote">SMO 的二变量子问题取解析最优解，因此对偶目标每步单调非减。</p>
+      </div>
+      <div class="card" style="margin:0">
+        <h2>α 分布</h2>
+        <canvas id="cv-alpha" height="170"></canvas>
+        <p class="note" id="alphAnote"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>8 条不变量自检</h2>
+      <table><thead><tr><th style="width:34%">不变量</th><th>实测</th><th style="width:74px">判定</th></tr></thead>
+      <tbody id="tests"><tr><td colspan="3" class="note">点击下方按钮运行。</td></tr></tbody></table>
+      <p class="note" style="margin-top:12px">
+        <button class="primary" id="btn-test">运行全部自检</button>
+        <span id="testinfo" style="margin-left:10px"></span>
+      </p>
+    </div>
+  </section>
+</div>
+</main>
+
+<script id="engine">
+(function () {
+  'use strict';
+
+  /* ───────────────────────── 基础工具（无 DOM） ───────────────────────── */
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function gauss(rng) {
+    var u = 0, v = 0;
+    while (u === 0) u = rng();
+    while (v === 0) v = rng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+  function zeros(n) { var a = new Array(n), i; for (i = 0; i < n; i++) a[i] = 0; return a; }
+  function zeros2(n, m) {
+    var a = new Array(n), i; for (i = 0; i < n; i++) a[i] = zeros(m); return a;
+  }
+  function clone2(A) { return A.map(function (r) { return r.slice(); }); }
+  function dot(a, b) { var s = 0, i; for (i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
+  function sqdist(a, b) {
+    var s = 0, i, d; for (i = 0; i < a.length; i++) { d = a[i] - b[i]; s += d * d; } return s;
+  }
+  function mean(a) { var s = 0, i; for (i = 0; i < a.length; i++) s += a[i]; return a.length ? s / a.length : 0; }
+  function binom(n, k) {
+    var r = 1, i; if (k < 0 || k > n) return 0;
+    for (i = 0; i < k; i++) r = r * (n - i) / (i + 1);
+    return Math.round(r);
+  }
+
+  /* 对称阵 Jacobi 特征分解（返回全部特征值，降序） */
+  function jacobiEigen(Ain, maxSweep) {
+    var n = Ain.length, A = clone2(Ain), i, j, k, p, q, sweep;
+    maxSweep = maxSweep || 100;
+    for (sweep = 0; sweep < maxSweep; sweep++) {
+      var off = 0;
+      for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) off += A[i][j] * A[i][j];
+      if (off < 1e-26) break;
+      for (p = 0; p < n - 1; p++) {
+        for (q = p + 1; q < n; q++) {
+          if (Math.abs(A[p][q]) < 1e-18) continue;
+          var theta = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+          var t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+          var c = 1 / Math.sqrt(t * t + 1), s = t * c;
+          for (k = 0; k < n; k++) {
+            var akp = A[k][p], akq = A[k][q];
+            A[k][p] = c * akp - s * akq;
+            A[k][q] = s * akp + c * akq;
+          }
+          for (k = 0; k < n; k++) {
+            var apk = A[p][k], aqk = A[q][k];
+            A[p][k] = c * apk - s * aqk;
+            A[q][k] = s * apk + c * aqk;
+          }
+        }
+      }
+    }
+    var ev = [];
+    for (i = 0; i < n; i++) ev.push(A[i][i]);
+    ev.sort(function (a, b) { return b - a; });
+    return ev;
+  }
+
+  /* ───────────────────────── 核函数 ───────────────────────── */
+
+  var KERNEL_NAMES = ['linear', 'poly', 'rbf'];
+
+  function kernel(name, x, z, p) {
+    if (name === 'linear') return dot(x, z);
+    if (name === 'poly') return Math.pow(dot(x, z) + p.coef0, p.deg);
+    if (name === 'rbf') return Math.exp(-p.gamma * sqdist(x, z));
+    throw new Error('unknown kernel: ' + name);
+  }
+
+  /* 多项式核 (x·z+1)^d 在 2D 下的显式特征映射 φ，使 φ(x)·φ(z) === (x·z+1)^d。
+     展开：(x·z+1)^d = Σ_k C(d,k)(x·z)^k，(x·z)^k = Σ_i C(k,i)(x₁z₁)^i(x₂z₂)^(k−i) */
+  function polyFeatures(x, d) {
+    var a = x[0], b = x.length > 1 ? x[1] : 0, out = [], k, i;
+    for (k = 0; k <= d; k++) {
+      for (i = 0; i <= k; i++) {
+        out.push(Math.sqrt(binom(d, k) * binom(k, i)) * Math.pow(a, i) * Math.pow(b, k - i));
+      }
+    }
+    return out;
+  }
+
+  function kernelMatrix(name, X, p) {
+    var n = X.length, K = zeros2(n, n), i, j;
+    for (i = 0; i < n; i++) {
+      for (j = i; j < n; j++) {
+        var v = kernel(name, X[i], X[j], p);
+        K[i][j] = v; K[j][i] = v;
+      }
+    }
+    return K;
+  }
+
+  /* ───────────────────────── 数据集 ───────────────────────── */
+
+  function makeDataset(kind, n, seed, noise) {
+    var rng = mulberry32(seed), X = [], y = [], i, m = Math.floor(n / 2), k, t;
+    noise = (noise == null) ? 0.1 : noise;
+    function push(px, py, lab) { X.push([px, py]); y.push(lab); }
+
+    if (kind === 'separable') {
+      for (i = 0; i < n; i++) {
+        var c = i % 2;
+        push((c ? 1.3 : -1.3) + gauss(rng) * 0.5, (c ? 1.0 : -1.0) + gauss(rng) * 0.5, c ? 1 : -1);
+      }
+    } else if (kind === 'overlap') {
+      for (i = 0; i < n; i++) {
+        var c2 = i % 2;
+        push((c2 ? 0.85 : -0.85) + gauss(rng) * (0.35 + noise), gauss(rng) * (0.35 + noise), c2 ? 1 : -1);
+      }
+    } else if (kind === 'xor') {
+      for (i = 0; i < n; i++) {
+        var sx = (i % 2 ? 1 : -1), sy = ((i >> 1) % 2 ? 1 : -1);
+        push(sx * 1.0 + gauss(rng) * (0.25 + noise), sy * 1.0 + gauss(rng) * (0.25 + noise), sx * sy > 0 ? 1 : -1);
+      }
+    } else if (kind === 'moons') {
+      for (k = 0; k < m; k++) {
+        t = Math.PI * k / Math.max(1, m - 1);
+        push(Math.cos(t) + gauss(rng) * noise, Math.sin(t) + gauss(rng) * noise, 1);
+        push(1 - Math.cos(t) + gauss(rng) * noise, 1 - Math.sin(t) - 0.45 + gauss(rng) * noise, -1);
+      }
+    } else if (kind === 'circles') {
+      for (k = 0; k < m; k++) {
+        t = 2 * Math.PI * k / m;
+        var r1 = 0.55 + gauss(rng) * noise, r2 = 1.25 + gauss(rng) * noise;
+        push(r1 * Math.cos(t), r1 * Math.sin(t), 1);
+        push(r2 * Math.cos(t), r2 * Math.sin(t), -1);
+      }
+    } else {
+      throw new Error('unknown dataset: ' + kind);
+    }
+    return { X: X, y: y, kind: kind };
+  }
+
+  /* ───────────────────────── 目标函数 ───────────────────────── */
+
+  /* α 的分类容差：SMO 用解析解 + clamp 更新，落在边界上的 α 会得到 ~1e-16 的浮点残渣，
+     而 α 恰好为 C 时也可能停在 C−1e-12。用精确的 α==0 / α==C 判定会把这两种点误分类，
+     从而（a）把残渣当成自由支持向量、（b）用自由点的公式污染 b。统一用相对容差。 */
+  function epsAlpha(C) { return 1e-9 * Math.max(1, Math.abs(C)); }
+  function classifyAlpha(a, C) {
+    var e = epsAlpha(C);
+    if (a <= e) return 0;        // 贴下界（非支持向量）
+    if (a >= C - e) return 2;    // 贴上界（界内支持向量）
+    return 1;                    // 自由支持向量
+  }
+
+  /* 对偶目标 D(α) = Σα − ½ αᵀQα，Q_ij = y_i y_j K_ij */
+  function dualObjective(alpha, Q) {
+    var n = alpha.length, s = 0, q = 0, i, j;
+    for (i = 0; i < n; i++) {
+      s += alpha[i];
+      var row = Q[i], ai = alpha[i];
+      for (j = 0; j < n; j++) q += ai * alpha[j] * row[j];
+    }
+    return s - 0.5 * q;
+  }
+  function alphaQalpha(alpha, Q) {
+    var n = alpha.length, q = 0, i, j;
+    for (i = 0; i < n; i++) { var ai = alpha[i], row = Q[i]; for (j = 0; j < n; j++) q += ai * alpha[j] * row[j]; }
+    return q;
+  }
+
+  /* 由 α 与 b 得到全部点的 f(x_i) = Σ_j α_j y_j K_ji + b */
+  function decisionValues(alpha, b, y, K) {
+    var n = alpha.length, f = zeros(n), i, j;
+    for (i = 0; i < n; i++) {
+      var s = 0;
+      for (j = 0; j < n; j++) if (alpha[j] !== 0) s += alpha[j] * y[j] * K[j][i];
+      f[i] = s + b;
+    }
+    return f;
+  }
+
+  /* 原始目标 P = ½‖w‖² + C Σ max(0, 1 − y_i f_i) */
+  function primalObjective(alpha, Q, y, f, C) {
+    var n = alpha.length, xi = 0, i;
+    for (i = 0; i < n; i++) { var v = 1 - y[i] * f[i]; if (v > 0) xi += v; }
+    return 0.5 * alphaQalpha(alpha, Q) + C * xi;
+  }
+
+  /* KKT 违反度（按 α 的分类判定）：
+     非支持向量 y·f ≥ 1；自由支持向量 y·f == 1；界内支持向量 y·f ≤ 1 */
+  function kktViolation(alpha, y, f, C) {
+    var n = alpha.length, worst = 0, i, v, cls, d;
+    for (i = 0; i < n; i++) {
+      v = y[i] * f[i];
+      cls = classifyAlpha(alpha[i], C);
+      if (cls === 0) d = Math.max(0, 1 - v);
+      else if (cls === 2) d = Math.max(0, v - 1);
+      else d = Math.abs(v - 1);
+      if (d > worst) worst = d;
+    }
+    return worst;
+  }
+
+  function equalityResidual(alpha, y) {
+    var s = 0, i; for (i = 0; i < alpha.length; i++) s += alpha[i] * y[i]; return Math.abs(s);
+  }
+
+  /* ───────────────────────── SMO ───────────────────────── */
+
+  /* 从自由支持向量精确重算 b：b = b + mean_{0<α<C}(y_i − f_i)
+     无自由支持向量时退化：由 KKT 给出的可行区间取中点
+       α=0, y=+1 ⇒ y·f ≥ 1 ⇒ b ≥ 1 − g_i      α=C, y=+1 ⇒ b ≤ 1 − g_i   (g_i = f_i − b)
+       α=0, y=−1 ⇒ y·f ≥ 1 ⇒ b ≤ −1 − g_i     α=C, y=−1 ⇒ b ≥ −1 − g_i  */
+  function refineB(alpha, b, y, K, C) {
+    var n = alpha.length, free = [], i, j;
+    for (i = 0; i < n; i++) if (classifyAlpha(alpha[i], C) === 1) free.push(i);
+    var f = decisionValues(alpha, b, y, K), s = 0;
+    if (free.length) {
+      for (j = 0; j < free.length; j++) s += y[free[j]] - f[free[j]];
+      return b + s / free.length;
+    }
+    var lo = -Infinity, hi = Infinity;
+    for (i = 0; i < n; i++) {
+      var g = f[i] - b, cls = classifyAlpha(alpha[i], C);
+      if (y[i] > 0) {
+        if (cls === 0) { var l1 = 1 - g; if (l1 > lo) lo = l1; }
+        if (cls === 2) { var h1 = 1 - g; if (h1 < hi) hi = h1; }
+      } else {
+        if (cls === 0) { var h2 = -1 - g; if (h2 < hi) hi = h2; }
+        if (cls === 2) { var l2 = -1 - g; if (l2 > lo) lo = l2; }
+      }
+    }
+    if (isFinite(lo) && isFinite(hi) && lo <= hi) return 0.5 * (lo + hi);
+    return b;
+  }
+
+  /* Fan 等人的「最大违反对」二阶工作集选择 SMO。
+     f_i = Σ_j α_j y_j K_ji + b 全程增量维护，故 E_i = f_i − y_i 始终精确。 */
+  function smo(X, y, opt) {
+    opt = opt || {};
+    var kernelName = opt.kernel || 'rbf';
+    var p = { gamma: opt.gamma == null ? 1 : opt.gamma, deg: opt.deg == null ? 2 : opt.deg, coef0: 1 };
+    var C = opt.C == null ? 1 : opt.C;
+    var tol = opt.tol == null ? 1e-8 : opt.tol;
+    var maxIter = opt.maxIter == null ? 20000 : opt.maxIter;
+    var n = X.length, i, j, k;
+
+    var K = kernelMatrix(kernelName, X, p);
+    var Q = zeros2(n, n);
+    for (i = 0; i < n; i++) for (j = 0; j < n; j++) Q[i][j] = y[i] * y[j] * K[i][j];
+
+    var alpha = zeros(n), b = 0;
+    var f = zeros(n), E = zeros(n);
+    for (i = 0; i < n; i++) { f[i] = b; E[i] = f[i] - y[i]; }
+
+    var hist = [dualObjective(alpha, Q)];
+    // 初始 b = 0：α=0 时 f≡b，两类被「同等地违反」，是唯一无量纲偏好的平衡起点
+    // （任何非零 b 都会让某一类在起点就系统性占优；SMO 的收敛性与起点无关，只是快慢不同）
+    b = 0;
+    for (i = 0; i < n; i++) { f[i] = b; E[i] = f[i] - y[i]; }
+
+    var iters = 0, converged = false, nStep = 0;
+
+    function takeStep(i1, j1) {
+      if (i1 === j1) return false;
+      var a1 = alpha[i1], a2 = alpha[j1], y1 = y[i1], y2 = y[j1];
+      var L, H;
+      if (y1 !== y2) { L = Math.max(0, a2 - a1); H = Math.min(C, C + a2 - a1); }
+      else { L = Math.max(0, a1 + a2 - C); H = Math.min(C, a1 + a2); }
+      if (L >= H) return false;
+      var eta = K[i1][i1] + K[j1][j1] - 2 * K[i1][j1];
+      if (!(eta > 0)) return false;              // 半正定核保证 eta ≥ 0
+      var a2new = a2 + y2 * (E[i1] - E[j1]) / eta;
+      if (a2new > H) a2new = H; else if (a2new < L) a2new = L;
+      if (Math.abs(a2new - a2) < 1e-12) return false;
+      var a1new = a1 + y1 * y2 * (a2 - a2new);
+
+      var b1 = b - E[i1] - y1 * (a1new - a1) * K[i1][i1] - y2 * (a2new - a2) * K[i1][j1];
+      var b2 = b - E[j1] - y1 * (a1new - a1) * K[i1][j1] - y2 * (a2new - a2) * K[j1][j1];
+      var bnew;
+      if (a1new > 0 && a1new < C) bnew = b1;
+      else if (a2new > 0 && a2new < C) bnew = b2;
+      else bnew = 0.5 * (b1 + b2);
+
+      var db = bnew - b, d1 = y1 * (a1new - a1), d2 = y2 * (a2new - a2), kk;
+      for (kk = 0; kk < n; kk++) {
+        f[kk] += d1 * K[i1][kk] + d2 * K[j1][kk] + db;
+        E[kk] = f[kk] - y[kk];
+      }
+      alpha[i1] = a1new; alpha[j1] = a2new; b = bnew;
+      nStep++;
+      return true;
+    }
+
+    /* 最大违反对（Fan 等 2005）：以 E 表示时 b 在判据中约掉
+         I_up  = {α<C, y=+1} ∪ {α>0, y=−1}   i = argmin_{I_up} E
+         I_low = {α>0, y=+1} ∪ {α<C, y=−1}   j = argmax_{I_low} E
+       最优当且仅当 max_{I_low} E − min_{I_up} E ≤ tol（两边同减 b，故与 b 无关）。 */
+    for (iters = 1; iters <= maxIter; iters++) {
+      var iUp = -1, minEUp = Infinity, jLow = -1, maxELow = -Infinity;
+      for (i = 0; i < n; i++) {
+        var upOK = (y[i] > 0 && alpha[i] < C) || (y[i] < 0 && alpha[i] > 0);
+        var loOK = (y[i] > 0 && alpha[i] > 0) || (y[i] < 0 && alpha[i] < C);
+        if (upOK && E[i] < minEUp) { minEUp = E[i]; iUp = i; }
+        if (loOK && E[i] > maxELow) { maxELow = E[i]; jLow = i; }
+      }
+      if (iUp < 0 || jLow < 0) { converged = true; break; }
+      if (maxELow - minEUp <= tol) { converged = true; break; }
+
+      var moved = takeStep(iUp, jLow) || takeStep(jLow, iUp);
+      if (!moved) {
+        /* 第二选择：最大违反对的子问题可能退化（α_j 已贴在 L 或 H 上，
+           解析解被 clamp 回原地）。按违反度顺序扫描其余候选对。 */
+        var iOrder = [], jOrder = [], k2, m2;
+        for (k2 = 0; k2 < n; k2++) {
+          if ((y[k2] > 0 && alpha[k2] < C) || (y[k2] < 0 && alpha[k2] > 0)) iOrder.push(k2);
+          if ((y[k2] > 0 && alpha[k2] > 0) || (y[k2] < 0 && alpha[k2] < C)) jOrder.push(k2);
+        }
+        iOrder.sort(function (a, b) { return E[a] - E[b]; });      // 违反度大 → E 小
+        jOrder.sort(function (a, b) { return E[b] - E[a]; });      // 违反度大 → E 大
+        for (k2 = 0; k2 < iOrder.length && !moved; k2++) {
+          for (m2 = 0; m2 < jOrder.length; m2++) {
+            if (takeStep(iOrder[k2], jOrder[m2])) { moved = true; break; }
+          }
+        }
+      }
+      if (!moved) { converged = true; break; }
+      hist.push(dualObjective(alpha, Q));
+    }
+
+    b = refineB(alpha, b, y, K, C);
+    f = decisionValues(alpha, b, y, K);
+
+    var nSV = 0, nFree = 0, nBounded = 0;
+    for (i = 0; i < n; i++) {
+      var cls2 = classifyAlpha(alpha[i], C);
+      if (cls2 !== 0) nSV++;
+      if (cls2 === 1) nFree++;
+      else if (cls2 === 2) nBounded++;
+    }
+    var w2 = alphaQalpha(alpha, Q);
+    var margin = w2 > 0 ? 2 / Math.sqrt(w2) : Infinity;
+    var err = 0;
+    for (i = 0; i < n; i++) if (y[i] * f[i] <= 0) err++;
+
+    return {
+      alpha: alpha, b: b, f: f, K: K, Q: Q, w2: w2, hist: hist,
+      iters: iters, steps: nStep, converged: converged,
+      nSV: nSV, nFree: nFree, nBounded: nBounded, margin: margin,
+      trainErr: err / n, dual: dualObjective(alpha, Q),
+      primal: primalObjective(alpha, Q, y, f, C),
+      kkt: kktViolation(alpha, y, f, C),
+      eqRes: equalityResidual(alpha, y),
+      kernel: kernelName, params: p, C: C
+    };
+  }
+
+  /* ───────────────────── 独立求解器：投影梯度上升 ───────────────────── */
+  /* 对偶可行域 {0 ≤ α ≤ C, Σ y_i α_i = 0} 上的欧氏投影：
+     α_i(λ) = clip(v_i + λ y_i, 0, C)，s(λ) = Σ y_i α_i(λ) 关于 λ 单调不减 → 二分求根。
+     根的括弧取 [−(max|v|+C), +(max|v|+C)]，收敛到双精度极限只需 ~45 次。 */
+  function projectBoxEq(v, y, C) {
+    var n = v.length, i, maxAbs = 0;
+    for (i = 0; i < n; i++) { var av = v[i] < 0 ? -v[i] : v[i]; if (av > maxAbs) maxAbs = av; }
+    var lo = -(maxAbs + C), hi = maxAbs + C, it, lam, s;
+    for (it = 0; it < 45; it++) {
+      lam = 0.5 * (lo + hi);
+      s = 0;
+      for (i = 0; i < n; i++) {
+        var a = v[i] + lam * y[i];
+        if (a < 0) a = 0; else if (a > C) a = C;
+        s += y[i] * a;
+      }
+      if (s > 0) hi = lam; else lo = lam;
+    }
+    lam = 0.5 * (lo + hi);
+    var out = zeros(n);
+    for (i = 0; i < n; i++) {
+      var t = v[i] + lam * y[i];
+      out[i] = t < 0 ? 0 : (t > C ? C : t);
+    }
+    return out;
+  }
+
+  /* 与 SMO 完全不同的算法路径：对凹对偶问题做加速投影梯度上升（FISTA）。
+     步长 s = 1/λmax(Q) 保证每步都不下降；外推项给出 O(1/k²) 收敛。 */
+  function pgd(X, y, opt) {
+    opt = opt || {};
+    var kernelName = opt.kernel || 'rbf';
+    var p = { gamma: opt.gamma == null ? 1 : opt.gamma, deg: opt.deg == null ? 2 : opt.deg, coef0: 1 };
+    var C = opt.C == null ? 1 : opt.C;
+    var iters = opt.iters == null ? 20000 : opt.iters;
+    var n = X.length, i, j, it;
+
+    var K = kernelMatrix(kernelName, X, p);
+    // Q 展平成一维，热循环里避免二维索引
+    var Qf = new Float64Array(n * n);
+    for (i = 0; i < n; i++) for (j = 0; j < n; j++) Qf[i * n + j] = y[i] * y[j] * K[i][j];
+
+    // λmax(Q)：Q 半正定，Jacobi 全谱取最大
+    var Q2 = zeros2(n, n);
+    for (i = 0; i < n; i++) for (j = 0; j < n; j++) Q2[i][j] = Qf[i * n + j];
+    var ev = jacobiEigen(Q2, 60);
+    var lmax = Math.max(1e-12, ev[0]);
+    var s = 1 / lmax;
+
+    function objOf(v) {
+      var t = 0, q = 0, a, k, l;
+      for (k = 0; k < n; k++) {
+        t += v[k]; a = v[k]; var row = k * n;
+        for (l = 0; l < n; l++) q += a * v[l] * Qf[row + l];
+      }
+      return t - 0.5 * q;
+    }
+
+    // 起点 α = 0（可行），从 0 出发在凹函数上做投影梯度，方向恒为上升
+    var alpha = zeros(n), a = zeros(n), t = 1;
+    for (it = 0; it < iters; it++) {
+      var v = zeros(n);
+      for (i = 0; i < n; i++) {
+        var q = 0, row = i * n;
+        for (j = 0; j < n; j++) q += Qf[row + j] * a[j];
+        v[i] = a[i] + s * (1 - q);
+      }
+      var anew = projectBoxEq(v, y, C);
+      var tn = 0.5 * (1 + Math.sqrt(1 + 4 * t * t)), mu = (t - 1) / tn;
+      for (i = 0; i < n; i++) a[i] = anew[i] + mu * (anew[i] - alpha[i]);
+      for (i = 0; i < n; i++) alpha[i] = anew[i];
+      t = tn;
+    }
+
+    var b = refineB(alpha, 0, y, K, C);
+    var f = decisionValues(alpha, b, y, K);
+    var Qm = zeros2(n, n);
+    for (i = 0; i < n; i++) for (j = 0; j < n; j++) Qm[i][j] = Qf[i * n + j];
+    return {
+      alpha: alpha, b: b, f: f, K: K, Q: Qm, lmax: lmax, objOf: objOf,
+      dual: dualObjective(alpha, Qm), w2: alphaQalpha(alpha, Qm),
+      kkt: kktViolation(alpha, y, f, C), eqRes: equalityResidual(alpha, y),
+      iters: iters
+    };
+  }
+
+  /* ───────────────── 最优性证书：方向角网格穷举 ─────────────────
+     对固定方向 w（取 ‖w‖=1），最优 b 有闭式解：让两类的投影区间尽量靠拢，
+       margin(w) = min_{y=+1} w·xᵢ − max_{y=−1} w·xᵢ     （已含 2/‖w‖ 的因子）
+     于是在单位圆周上密集采方向给的是最大间隔的**下界**：
+     任何网格方向都不应超过 SMO 的解 —— 超越即证明 SMO 次优。
+     （注意必须同时优化 b：只扫过原点的方向会低估计 ~2%，且不随网格加密收敛。） */
+  function gridMarginBound(X, y, nDirs) {
+    var best = -Infinity, k, i, n = X.length;
+    for (k = 0; k < nDirs; k++) {
+      var th = Math.PI * k / nDirs, c = Math.cos(th), s = Math.sin(th);
+      var minPos = Infinity, maxNeg = -Infinity;
+      for (i = 0; i < n; i++) {
+        var v = c * X[i][0] + s * X[i][1];
+        if (y[i] > 0) { if (v < minPos) minPos = v; }
+        else { if (v > maxNeg) maxNeg = v; }
+      }
+      var gap = minPos - maxNeg;
+      if (gap > best) best = gap;
+    }
+    return best;
+  }
+
+  /* ───────────────── 最优性证书：2D 硬间隔**精确**枚举 ─────────────────
+     同一个 f(θ) = min_{y=+1} w·xᵢ − max_{y=−1} w·xᵢ（w=(cosθ,sinθ)，含最优 b）。
+     f = g − h，其中 g(θ)=min_P w·x 与 h(θ)=max_N w·x 都是分段正弦：
+       · g 的断点：两个**同类**点投影持平 ⇒ w ⊥ (xᵢ−xⱼ)
+       · 每段上 f(θ) = w·(x_p − x_q) 是纯正弦 ⇒ 段内驻点满足 w ∥ (xᵢ−xⱼ)
+     所以 f 的全局极大点必落在「某对点差向量的平行/垂直方向」里 —— 全枚举 O(n²) 即可
+     得到**精确**最优值，不含任何网格分辨率假设（网格在近可分数据上会严重低估：
+     overlap/s6002 上 50 万方向网格只给 0.0435，精确最优是 0.4227）。
+     返回 margin > 0 ⟺ 数据线性可分，且此时 margin 恰等于硬间隔 SVM 的 2/‖w*‖。 */
+  function exactMargin2D(X, y) {
+    var n = X.length, cand = [], i, j, k;
+    for (i = 0; i < n; i++) {
+      for (j = 0; j < n; j++) {
+        if (i === j) continue;
+        var a = Math.atan2(X[i][1] - X[j][1], X[i][0] - X[j][0]);
+        cand.push(a, a + Math.PI / 2);
+      }
+    }
+    var best = -Infinity, bestTh = 0;
+    for (k = 0; k < cand.length; k++) {
+      var th = cand[k], c = Math.cos(th), s = Math.sin(th);
+      var minPos = Infinity, maxNeg = -Infinity;
+      for (i = 0; i < n; i++) {
+        var v = c * X[i][0] + s * X[i][1];
+        if (y[i] > 0) { if (v < minPos) minPos = v; }
+        else { if (v > maxNeg) maxNeg = v; }
+      }
+      var gap2 = minPos - maxNeg;
+      if (gap2 > best) { best = gap2; bestTh = th; }
+    }
+    return { margin: best, theta: bestTh, feasible: best > 0, nCand: cand.length };
+  }
+
+  /* ───────────────────── SMO 二变量子问题（解析） ───────────────────── */
+  /* 给定当前状态与 (i,j)，返回 L, H, 无约束最优 α_j*、clamp 后的解析解 */
+  function subproblem2(K, y, alpha, b, f, C, i, j) {
+    var a1 = alpha[i], a2 = alpha[j], y1 = y[i], y2 = y[j], L, H;
+    if (y1 !== y2) { L = Math.max(0, a2 - a1); H = Math.min(C, C + a2 - a1); }
+    else { L = Math.max(0, a1 + a2 - C); H = Math.min(C, a1 + a2); }
+    var eta = K[i][i] + K[j][j] - 2 * K[i][j];
+    var E1 = f[i] - y[i], E2 = f[j] - y[j];
+    // η = 0 表示两个样本在特征空间重合（如线性核下的重复点），子问题退化为一维平坦函数
+    var unconstrained = eta > 1e-14 ? a2 + y2 * (E1 - E2) / eta : a2;
+    var clamped = Math.min(H, Math.max(L, unconstrained));
+    return { L: L, H: H, eta: eta, unconstrained: unconstrained, clamped: clamped, a1: a1, a2: a2 };
+  }
+
+  /* 一维黄金分割搜索：在 [L,H] 上最大化子问题目标。
+     子问题是关于 α_j 的凹二次函数，其无约束极大点钳到 [L,H] 即为区间最优，
+     所以黄金分割的结果必须等于 clamp(α_j*, L, H)。 */
+  function goldenMaxSubproblem(Q, y, alpha, i, j, L, H, iters) {
+    var n = alpha.length;
+    function obj(aj) {
+      var a2v = alpha.slice();
+      a2v[i] = alpha[i] + y[i] * y[j] * (alpha[j] - aj);
+      a2v[j] = aj;
+      var s = 0, q = 0, k, l;
+      for (k = 0; k < n; k++) {
+        s += a2v[k]; var row = Q[k], ak = a2v[k];
+        for (l = 0; l < n; l++) q += ak * a2v[l] * row[l];
+      }
+      return s - 0.5 * q;
+    }
+    var R = (Math.sqrt(5) - 1) / 2, a = L, b = H;
+    var c = b - R * (b - a), d = a + R * (b - a);
+    var fc = obj(c), fd = obj(d);
+    var maxIt = iters || 200;
+    for (var it = 0; it < maxIt && (b - a) > 1e-15; it++) {
+      if (fc > fd) { b = d; d = c; fd = fc; c = b - R * (b - a); fc = obj(c); }
+      else { a = c; c = d; fc = fd; d = a + R * (b - a); fd = obj(d); }
+    }
+    var xm = 0.5 * (a + b);
+    return { x: xm, val: obj(xm), iters: maxIt };
+  }
+
+  /* ───────────────────────── 8 条自检 ───────────────────────── */
+
+  function selfTest(opts) {
+    opts = opts || {};
+    var out = [], rng = mulberry32(opts.seed == null ? 20260915 : opts.seed), i, j, k;
+
+    function add(name, detail, pass) { out.push({ name: name, detail: detail, pass: !!pass }); }
+    function run(kind, n, noise, kernelName, par) {
+      var d = makeDataset(kind, n, 11 + n, noise);
+      var o = { kernel: kernelName, C: par.C, gamma: par.gamma, deg: par.deg, tol: 1e-9, maxIter: 30000 };
+      var r = smo(d.X, d.y, o);
+      r.data = d; r.opt = o;
+      return r;
+    }
+
+    /* ① KKT 五条件 */
+    (function () {
+      var cases = [
+        run('separable', 40, 0.05, 'linear', { C: 1 }),
+        run('overlap', 40, 0.20, 'rbf', { C: 1, gamma: 1 }),
+        run('moons', 60, 0.10, 'rbf', { C: 4, gamma: 2 }),
+        run('xor', 40, 0.10, 'poly', { C: 2, deg: 2 })
+      ];
+      var worst = 0, worstEq = 0, boxOK = true;
+      cases.forEach(function (r) {
+        worst = Math.max(worst, r.kkt);
+        worstEq = Math.max(worstEq, r.eqRes);
+        for (var i = 0; i < r.alpha.length; i++) if (r.alpha[i] < -1e-12 || r.alpha[i] > r.C + 1e-12) boxOK = false;
+      });
+      add('① KKT 五条件（含互补松弛）',
+        '4 个场景 max 违反度 = ' + worst.toExponential(2) + '，|Σαᵢyᵢ| = ' + worstEq.toExponential(1) +
+        '，0≤α≤C ' + (boxOK ? '成立' : '越界'),
+        worst < 1e-6 && worstEq < 1e-9 && boxOK);
+    })();
+
+    /* ② 对偶间隙 → 0 */
+    (function () {
+      var r = run('overlap', 50, 0.22, 'rbf', { C: 1, gamma: 1 });
+      var gap = Math.abs(r.primal - r.dual), rel = gap / Math.max(1, Math.abs(r.primal));
+      add('② 强对偶：原始目标 == 对偶目标',
+        'P = ' + r.primal.toFixed(9) + '，D = ' + r.dual.toFixed(9) + '，相对间隙 = ' + rel.toExponential(2),
+        rel < 1e-8);
+    })();
+
+    /* ③ 自由支持向量精确落在间隔上 */
+    (function () {
+      var r = run('moons', 60, 0.08, 'rbf', { C: 3, gamma: 1.5 });
+      var mx = 0, cnt = 0;
+      for (var i = 0; i < r.alpha.length; i++) {
+        if (classifyAlpha(r.alpha[i], r.C) === 1) {
+          mx = Math.max(mx, Math.abs(r.data.y[i] * r.f[i] - 1)); cnt++;
+        }
+      }
+      add('③ 0<α<C 的支持向量满足 y·f(x) == 1',
+        cnt + ' 个自由支持向量，max|y·f − 1| = ' + mx.toExponential(2), cnt > 0 && mx < 1e-6);
+    })();
+
+    /* ④ 二变量子问题：解析解在数值精度内达到一维最优 */
+    (function () {
+      var r = run('overlap', 36, 0.2, 'rbf', { C: 1, gamma: 1 });
+      var worstDv = 0, noWorse = 0, worstDeriv = 0, worstCurv = 0, tested = 0, interior = 0;
+      var H = 1e-5, ci = 0, cj = 1;
+      function atSub(x) {
+        var v = r.alpha.slice();
+        v[cj] = x;
+        v[ci] = r.alpha[ci] + r.data.y[ci] * r.data.y[cj] * (r.alpha[cj] - x);
+        return dualObjective(v, r.Q);
+      }
+      for (k = 0; k < 140; k++) {
+        var i = Math.floor(rng() * r.alpha.length), j = Math.floor(rng() * r.alpha.length);
+        if (i === j) continue;
+        var sp = subproblem2(r.K, r.data.y, r.alpha, r.b, r.f, r.C, i, j);
+        if (!(sp.H > sp.L)) continue;
+        ci = i; cj = j;
+        var g = goldenMaxSubproblem(r.Q, r.data.y, r.alpha, i, j, sp.L, sp.H, 300);
+        var va = atSub(sp.clamped);
+        worstDv = Math.max(worstDv, Math.abs(va - g.val));
+        noWorse = Math.max(noWorse, g.val - va);
+        /* 直接验证「解析解是一维子问题的最优点」的一阶条件：
+           内点 ⇒ D'≈0；被 clamp 到下界 ⇒ D'≤0；被 clamp 到上界 ⇒ D'≥0 */
+        var d1 = (atSub(sp.clamped + H) - atSub(sp.clamped - H)) / (2 * H);
+        var violD;
+        if (sp.clamped <= sp.L + 1e-12) violD = Math.max(0, d1);
+        else if (sp.clamped >= sp.H - 1e-12) violD = Math.max(0, -d1);
+        else { violD = Math.abs(d1); interior++; }
+        worstDeriv = Math.max(worstDeriv, violD);
+        /* argmax 的定位精度被目标求值噪声 ε≈1e-15 与曲率 η 共同限制在 √(2ε/η)，
+           所以断言 Δα²·η 而不是 Δα 本身 */
+        if (sp.eta > 1e-6) worstCurv = Math.max(worstCurv, (g.x - sp.clamped) * (g.x - sp.clamped) * sp.eta);
+        tested++;
+      }
+      add('④ SMO 子问题解析解在一维上达到最优（一阶条件 + 无导数搜索）',
+        tested + ' 对 (i,j)（' + interior + ' 对落在内点）：目标差 ' + worstDv.toExponential(2) +
+        '，解析解劣化 ' + noWorse.toExponential(1) + '，一阶条件违反 ' + worstDeriv.toExponential(2) +
+        '，argmax 曲率界 Δα²η ' + worstCurv.toExponential(1),
+        tested > 30 && interior > 10 && worstDv < 1e-13 && noWorse < 1e-13 && worstDeriv < 1e-7 && worstCurv < 1e-12);
+    })();
+
+    /* ⑤ 对偶目标单调非减 */
+    (function () {
+      var r = run('overlap', 50, 0.2, 'rbf', { C: 1, gamma: 1 });
+      var minD = Infinity;
+      for (var t = 1; t < r.hist.length; t++) minD = Math.min(minD, r.hist[t] - r.hist[t - 1]);
+      add('⑤ SMO 对偶目标单调非减',
+        r.hist.length + ' 步，min Δ = ' + minD.toExponential(2) + '（' + r.hist[0].toFixed(4) + ' → ' +
+        r.hist[r.hist.length - 1].toFixed(4) + '）',
+        minD > -1e-10);
+    })();
+
+    /* ⑥ 核技巧 == 显式特征映射 + RBF Gram 半正定 */
+    (function () {
+      var dd, worst = 0, t, x, z, scaleMax = 0;
+      for (dd = 2; dd <= 5; dd++) {
+        for (t = 0; t < 10; t++) {
+          x = [gauss(rng) * 2, gauss(rng) * 2];
+          z = [gauss(rng) * 2, gauss(rng) * 2];
+          var viaKernel = kernel('poly', x, z, { deg: dd, coef0: 1 });
+          var px = polyFeatures(x, dd), pz = polyFeatures(z, dd);
+          var denom = 0, q;
+          for (q = 0; q < px.length; q++) denom += Math.abs(px[q] * pz[q]);
+          /* 核值随 d 指数增长，绝对/朴素相对误差都被动态范围主导；
+             点积恒等式的正确度量是条件数归一化的后向误差 */
+          worst = Math.max(worst, Math.abs(viaKernel - dot(px, pz)) / Math.max(1, denom));
+          scaleMax = Math.max(scaleMax, Math.abs(viaKernel));
+        }
+      }
+      var Xs = [], s;
+      for (s = 0; s < 24; s++) Xs.push([gauss(rng) * 1.5, gauss(rng) * 1.5]);
+      var Kr = kernelMatrix('rbf', Xs, { gamma: 1.3 });
+      var ev = jacobiEigen(Kr, 200);
+      var minEv = ev[ev.length - 1], maxEv = ev[0];
+      var transInv = 0;
+      for (t = 0; t < 20; t++) {
+        var a = [XPtr(rng), XPtr(rng)], bb = [XPtr(rng), XPtr(rng)];
+        var shift = [3.5, -2.1];
+        transInv = Math.max(transInv, Math.abs(
+          kernel('rbf', a, bb, { gamma: 1.3 }) -
+          kernel('rbf', [a[0] + shift[0], a[1] + shift[1]], [bb[0] + shift[0], bb[1] + shift[1]], { gamma: 1.3 })));
+      }
+      add('⑥ 核技巧 == 显式 φ；RBF Gram 半正定 + 平移不变',
+        'poly^2..5 与显式 φ 最大后向误差 ' + worst.toExponential(2) + '（核值最大 ' + scaleMax.toFixed(0) + '）；RBF λ ∈ [' +
+        minEv.toFixed(3) + ', ' + maxEv.toFixed(2) + ']；平移不变偏差 ' + transInv.toExponential(2),
+        worst < 1e-15 && minEv > -1e-10 && transInv < 1e-14);
+    })();
+
+    /* ⑦ 独立算法对拍：SMO == 投影梯度上升 */
+    (function () {
+      var st = [];
+      ['separable', 'overlap', 'moons'].forEach(function (kind) {
+        var d = makeDataset(kind, 30, 4242, 0.18);
+        var o = { kernel: 'rbf', C: 1.5, gamma: 1, tol: 1e-10, maxIter: 30000 };
+        var a = smo(d.X, d.y, o), g = pgd(d.X, d.y, { kernel: 'rbf', C: 1.5, gamma: 1, iters: 30000 });
+        st.push({ kind: kind, smo: a.dual, pgd: g.dual, diff: Math.abs(a.dual - g.dual), gkkt: g.kkt });
+      });
+      var worst = 0, worstK = 0;
+      st.forEach(function (s) { worst = Math.max(worst, s.diff); worstK = Math.max(worstK, s.gkkt); });
+      add('⑦ SMO == 投影梯度上升（独立算法同一对偶最优）',
+        '3 个场景 max|ΔD| = ' + worst.toExponential(2) + '（SMO ' + st[1].smo.toFixed(8) + ' vs PGA ' + st[1].pgd.toFixed(8) +
+        '），PGA 自身 KKT 违反 ' + worstK.toExponential(1),
+        worst < 1e-5 && worstK < 1e-5);
+    })();
+
+    /* ⑧ 置换不变性 + 2D 硬间隔精确最优性证书 */
+    (function () {
+      var d = makeDataset('separable', 40, 777, 0.05);
+      var o = { kernel: 'linear', C: 50, tol: 1e-10, maxIter: 30000 };
+      var r1 = smo(d.X, d.y, o);
+      var idx = [], i2;
+      for (i2 = 0; i2 < d.X.length; i2++) idx.push(i2);
+      for (i2 = idx.length - 1; i2 > 0; i2--) { var j2 = Math.floor(rng() * (i2 + 1)); var tmp = idx[i2]; idx[i2] = idx[j2]; idx[j2] = tmp; }
+      var Xp = idx.map(function (t) { return d.X[t]; }), yp = idx.map(function (t) { return d.y[t]; });
+      var r2 = smo(Xp, yp, o);
+
+      var ex = exactMargin2D(d.X, d.y);
+      var grid = gridMarginBound(d.X, d.y, 100000);
+      var okExact = Math.abs(r1.margin - ex.margin) < 1e-9;   // SMO == 精确枚举最优
+      var okGrid = grid <= ex.margin + 1e-9;                  // 网格下界永不超过精确最优
+      var worstTrain = r1.trainErr;
+      add('⑧ 置换不变性 + 2D 硬间隔精确最优性证书',
+        '打乱次序后 |ΔD| = ' + Math.abs(r1.dual - r2.dual).toExponential(2) + '、|Δ‖w‖²| = ' +
+        Math.abs(r1.w2 - r2.w2).toExponential(2) + '；SMO 间隔 ' + r1.margin.toFixed(9) +
+        ' == 精确枚举 ' + ex.margin.toFixed(9) + '（' + ex.nCand + ' 个候选方向，O(n²)）；' +
+        '10 万方向网格下界 ' + grid.toFixed(6) + '（差 ' + (ex.margin - grid).toExponential(1) +
+        '，网格天生只是下界）；训练误差 ' + (worstTrain * 100).toFixed(1) + '%',
+        Math.abs(r1.dual - r2.dual) < 1e-6 && Math.abs(r1.w2 - r2.w2) < 1e-6 &&
+        okExact && okGrid && ex.feasible && worstTrain === 0);
+    })();
+
+    return out;
+  }
+
+  function XPtr(rng) { return gauss(rng) * 1.5; }
+
+  /* w 的显式表示（线性核）：w = Σ α_i y_i x_i */
+  function explicitW(alpha, y, X) {
+    var d = X[0].length, w = zeros(d), i, j;
+    for (i = 0; i < X.length; i++) {
+      if (alpha[i] === 0) continue;
+      for (j = 0; j < d; j++) w[j] += alpha[i] * y[i] * X[i][j];
+    }
+    return w;
+  }
+
+  globalThis.SVM = {
+    mulberry32: mulberry32, gauss: gauss,
+    kernel: kernel, kernelMatrix: kernelMatrix, polyFeatures: polyFeatures,
+    jacobiEigen: jacobiEigen,
+    makeDataset: makeDataset,
+    dualObjective: dualObjective, primalObjective: primalObjective, alphaQalpha: alphaQalpha,
+    decisionValues: decisionValues, kktViolation: kktViolation, equalityResidual: equalityResidual,
+    epsAlpha: epsAlpha, classifyAlpha: classifyAlpha,
+    smo: smo, pgd: pgd, refineB: refineB, projectBoxEq: projectBoxEq,
+    subproblem2: subproblem2, goldenMaxSubproblem: goldenMaxSubproblem,
+    gridMarginBound: gridMarginBound, exactMargin2D: exactMargin2D, explicitW: explicitW,
+    selfTest: selfTest, KERNEL_NAMES: KERNEL_NAMES
+  };
+})();
+</script>
+
+<script id="ui">
+if (typeof document === "undefined") { /* Node 下 no-op */ } else { (function () {
+  'use strict';
+  var S = globalThis.SVM;
+  var $ = function (id) { return document.getElementById(id); };
+  var P = { kernel: 'rbf', C: 1, gamma: 1, deg: 2, kind: 'separable', n: 80, noise: 0.10 };
+  var cur = null, data = null;
+
+  function expSlider(v) { return Math.pow(10, v); }
+  function fmt(v) { return v >= 100 ? v.toFixed(0) : (v >= 10 ? v.toFixed(1) : v.toFixed(2)); }
+
+  /* 每次按 clientWidth 重设位图并使用 setTransform，避免 DPR 缩放累积 */
+  function ctxOf(cv, h) {
+    var w = Math.max(320, Math.floor(cv.clientWidth || cv.parentNode.clientWidth || 560));
+    var dpr = window.devicePixelRatio || 1;
+    cv.style.height = h + 'px';
+    if (cv._w !== w || cv._h !== h || cv._dpr !== dpr) {
+      cv.width = Math.floor(w * dpr); cv.height = Math.floor(h * dpr);
+      cv._w = w; cv._h = h; cv._dpr = dpr;
+    }
+    var c = cv.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
+    return { c: c, w: w, h: h };
+  }
+
+  function bounds(X) {
+    var x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, i;
+    for (i = 0; i < X.length; i++) {
+      x0 = Math.min(x0, X[i][0]); x1 = Math.max(x1, X[i][0]);
+      y0 = Math.min(y0, X[i][1]); y1 = Math.max(y1, X[i][1]);
+    }
+    var padx = (x1 - x0) * 0.16 + 0.2, pady = (y1 - y0) * 0.16 + 0.2;
+    return { x0: x0 - padx, x1: x1 + padx, y0: y0 - pady, y1: y1 + pady };
+  }
+
+  function makePlane(w, h, b) {
+    var sx = w / (b.x1 - b.x0), sy = h / (b.y1 - b.y0);
+    return {
+      toPx: function (x, y) { return [ (x - b.x0) * sx, h - (y - b.y0) * sy ]; },
+      toData: function (px, py) { return [ b.x0 + px / sx, b.y0 + (h - py) / sy ]; },
+      sx: sx, sy: sy, b: b, w: w, h: h
+    };
+  }
+
+  /* 决策函数值（任意点） */
+  function fAt(x, r) {
+    var s = 0, i;
+    for (i = 0; i < r.alpha.length; i++) {
+      if (r.alpha[i] === 0) continue;
+      s += r.alpha[i] * data.y[i] * S.kernel(r.kernel, data.X[i], x, r.params);
+    }
+    return s + r.b;
+  }
+
+  /* 粗网格算 f，再放大绘制背景带 + marching squares 描等值线（f = −1, 0, +1） */
+  var COARSE = 3;
+  function drawDecision(cv) {
+    var g = ctxOf(cv, 360), c = g.c, w = g.w, h = g.h;
+    if (!cur) return;
+    var b = bounds(data.X), pl = makePlane(w, h, b);
+    var gw = Math.ceil(w / COARSE), gh = Math.ceil(h / COARSE), i, j;
+
+    var F = [];
+    for (j = 0; j < gh; j++) {
+      F.push(new Float64Array(gw));
+      for (i = 0; i < gw; i++) {
+        var d = pl.toData(i * COARSE, j * COARSE);
+        F[j][i] = fAt(d, cur);
+      }
+    }
+
+    var img = c.createImageData(gw, gh), o = img.data;
+    for (j = 0; j < gh; j++) {
+      for (i = 0; i < gw; i++) {
+        var v = F[j][i], pos = v >= 0, p = (j * gw + i) * 4;
+        var r0, g0, b0;
+        if (Math.abs(v) <= 1) { r0 = 240; g0 = 242; b0 = 246; }
+        else if (pos) { r0 = 250; g0 = 232; b0 = 230; }
+        else { r0 = 228; g0 = 238; b0 = 248; }
+        o[p] = r0; o[p + 1] = g0; o[p + 2] = b0; o[p + 3] = 255;
+      }
+    }
+    var off = document.createElement('canvas');
+    off.width = gw; off.height = gh;
+    off.getContext('2d').putImageData(img, 0, 0);
+    c.imageSmoothingEnabled = true;
+    c.drawImage(off, 0, 0, gw, gh, 0, 0, gw * COARSE, gh * COARSE);
+
+    /* 粗网格坐标 (i,j) 直接对应像素 (i·COARSE, j·COARSE)，不再绕 data 坐标做二次变换 */
+    function interp(a, va, b2, vb) {
+      var t = va / (va - vb);
+      return [a[0] + (b2[0] - a[0]) * t, a[1] + (b2[1] - a[1]) * t];
+    }
+    function contour(level, color, width) {
+      c.strokeStyle = color; c.lineWidth = width; c.beginPath();
+      for (j = 0; j < gh - 1; j++) {
+        for (i = 0; i < gw - 1; i++) {
+          var v00 = F[j][i] - level, v10 = F[j][i + 1] - level,
+              v01 = F[j + 1][i] - level, v11 = F[j + 1][i + 1] - level;
+          var P00 = [i * COARSE, j * COARSE], P10 = [(i + 1) * COARSE, j * COARSE],
+              P01 = [i * COARSE, (j + 1) * COARSE], P11 = [(i + 1) * COARSE, (j + 1) * COARSE];
+          var pts = [];
+          if ((v00 > 0) !== (v10 > 0)) pts.push(interp(P00, v00, P10, v10));
+          if ((v10 > 0) !== (v11 > 0)) pts.push(interp(P10, v10, P11, v11));
+          if ((v11 > 0) !== (v01 > 0)) pts.push(interp(P11, v11, P01, v01));
+          if ((v01 > 0) !== (v00 > 0)) pts.push(interp(P01, v01, P00, v00));
+          if (pts.length >= 2) {
+            c.moveTo(pts[0][0], pts[0][1]);
+            c.lineTo(pts[1][0], pts[1][1]);
+            if (pts.length === 4) { c.moveTo(pts[2][0], pts[2][1]); c.lineTo(pts[3][0], pts[3][1]); }
+          }
+        }
+      }
+      c.stroke();
+    }
+    contour(-1, '#b9c2d0', 1.1);
+    contour(1, '#b9c2d0', 1.1);
+    contour(0, '#2c3440', 2);
+
+    /* 数据点 */
+    for (i = 0; i < data.X.length; i++) {
+      var pp = pl.toPx(data.X[i][0], data.X[i][1]);
+      var acls = S.classifyAlpha(cur.alpha[i], cur.C);
+      if (acls !== 0) {
+        c.beginPath(); c.arc(pp[0], pp[1], 7.5, 0, 2 * Math.PI);
+        c.strokeStyle = '#e08a12'; c.lineWidth = 2; c.stroke();
+      }
+      c.beginPath();
+      c.arc(pp[0], pp[1], acls !== 0 ? 4.6 : 3.4, 0, 2 * Math.PI);
+      c.fillStyle = data.y[i] > 0 ? '#c0392b' : '#1f6fb2';
+      c.globalAlpha = acls === 2 ? 0.45 : 1;
+      c.fill(); c.globalAlpha = 1;
+    }
+  }
+
+  function drawObj(cv) {
+    var g = ctxOf(cv, 170), c = g.c, w = g.w, h = g.h;
+    if (!cur || cur.hist.length < 2) return;
+    var hist = cur.hist, mn = Infinity, mx = -Infinity, i;
+    for (i = 0; i < hist.length; i++) { mn = Math.min(mn, hist[i]); mx = Math.max(mx, hist[i]); }
+    if (mx - mn < 1e-9) { mx = mn + 1; }
+    var L = 44, R = 10, T = 12, B = 24, iw = w - L - R, ih = h - T - B;
+    c.strokeStyle = '#e3e6ec'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(L, T); c.lineTo(L, T + ih); c.lineTo(L + iw, T + ih); c.stroke();
+    c.beginPath();
+    for (i = 0; i < hist.length; i++) {
+      var px = L + iw * (hist.length === 1 ? 0 : i / (hist.length - 1));
+      var py = T + ih - ih * (hist[i] - mn) / (mx - mn);
+      if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
+    }
+    c.strokeStyle = '#1f6fb2'; c.lineWidth = 1.8; c.stroke();
+    c.fillStyle = '#68707e'; c.font = '11px system-ui,sans-serif';
+    c.textAlign = 'right';
+    c.fillText(mx.toFixed(2), L - 5, T + 8);
+    c.fillText(mn.toFixed(2), L - 5, T + ih);
+    c.textAlign = 'center';
+    c.fillText('SMO 迭代步', L + iw / 2, h - 7);
+    c.textAlign = 'left';
+    c.fillText('D', 8, T + 8);
+  }
+
+  function drawAlpha(cv) {
+    var g = ctxOf(cv, 170), c = g.c, w = g.w, h = g.h;
+    if (!cur) return;
+    var a = cur.alpha, n = a.length, L = 34, R = 10, T = 12, B = 34, iw = w - L - R, ih = h - T - B;
+    var bw = iw / n;
+    for (var i = 0; i < n; i++) {
+      var v = a[i] / cur.C, h0 = ih * Math.min(1, v);
+      var cls = S.classifyAlpha(a[i], cur.C);
+      c.fillStyle = cls === 0 ? '#dfe3ea' : (cls === 2 ? '#c0392b' : '#e08a12');
+      c.fillRect(L + i * bw, T + ih - h0, Math.max(1, bw - 0.6), h0);
+    }
+    c.strokeStyle = '#e3e6ec'; c.beginPath(); c.moveTo(L, T + ih); c.lineTo(L + iw, T + ih); c.stroke();
+    c.fillStyle = '#68707e'; c.font = '11px system-ui,sans-serif'; c.textAlign = 'left';
+    c.fillText('α = C（界内）', L, h - 18);
+    c.fillText('α = 0', L, h - 5);
+    c.fillStyle = '#c0392b'; c.fillText('█', L + 78, h - 18);
+    c.fillStyle = '#dfe3ea'; c.fillText('█', L + 34, h - 5);
+    c.fillStyle = '#e08a12'; c.fillText('█', L + 150, h - 18);
+  }
+
+  function stat(label, value) {
+    return '<div class="stat"><span>' + label + '</span><b>' + value + '</b></div>';
+  }
+
+  function renderStats() {
+    if (!cur) return;
+    var html = '';
+    html += stat('支持向量', cur.nSV + ' / ' + data.X.length);
+    html += stat('其中自由 SV', String(cur.nFree));
+    html += stat('界内 SV（α=C）', String(cur.nBounded));
+    html += stat('间隔 2/‖w‖', isFinite(cur.margin) ? cur.margin.toFixed(4) : '∞');
+    html += stat('训练误差', (cur.trainErr * 100).toFixed(1) + '%');
+    html += stat('对偶目标 D', cur.dual.toFixed(6));
+    html += stat('KKT 违反度', cur.kkt.toExponential(1));
+    html += stat('SMO 步数', String(cur.steps));
+    $('stats').innerHTML = html;
+    $('objnote').textContent = cur.steps + ' 步：' + cur.hist[0].toFixed(4) + ' → ' +
+      cur.hist[cur.hist.length - 1].toFixed(4) + '（min Δ = ' +
+      (function () { var m = Infinity; for (var t = 1; t < cur.hist.length; t++) m = Math.min(m, cur.hist[t] - cur.hist[t - 1]); return m > -1e-10 ? '≥0' : m.toExponential(1); })() + '）';
+    $('alphAnote').textContent = '灰 = α=0（非支持向量）· 橙 = 0<α<C（自由，恰在间隔上）· 红 = α=C（界内，落在间隔内或错分）。共 ' + cur.nSV + ' 个 α>0。';
+  }
+
+  function run() {
+    data = S.makeDataset(P.kind, P.n, 1000 + P.n, P.noise);
+    cur = S.smo(data.X, data.y, {
+      kernel: P.kernel, C: P.C, gamma: P.gamma, deg: P.deg, tol: 1e-8, maxIter: 20000
+    });
+    drawDecision($('cv-main')); drawObj($('cv-obj')); drawAlpha($('cv-alpha')); renderStats();
+  }
+
+  function runTests() {
+    var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+    var res = S.selfTest({ seed: 20260915 });
+    var ms = ((window.performance && performance.now) ? performance.now() : Date.now()) - t0;
+    var nPass = 0, html = '';
+    res.forEach(function (r) {
+      if (r.pass) nPass++;
+      html += '<tr><td>' + r.name + '</td><td class="n">' + r.detail + '</td><td class="' +
+        (r.pass ? 'ok' : 'bad') + '">' + (r.pass ? '✓ PASS' : '✗ FAIL') + '</td></tr>';
+    });
+    $('tests').innerHTML = html;
+    $('testinfo').innerHTML = '<b>' + nPass + ' / ' + res.length + '</b> 通过，耗时 ' + Math.round(ms) + ' ms';
+  }
+
+  function syncLabels() {
+    $('v-n').textContent = P.n;
+    $('v-noise').textContent = P.noise.toFixed(2);
+    $('v-C').textContent = fmt(P.C);
+    $('v-gamma').textContent = fmt(P.gamma);
+    $('v-deg').textContent = P.deg;
+    $('inp-gamma').disabled = P.kernel !== 'rbf';
+    $('inp-deg').disabled = P.kernel !== 'poly';
+  }
+
+  $('inp-kind').onchange = function () { P.kind = this.value; run(); };
+  $('inp-kernel').onchange = function () { P.kernel = this.value; syncLabels(); run(); };
+  $('inp-n').oninput = function () { P.n = +this.value; syncLabels(); run(); };
+  $('inp-noise').oninput = function () { P.noise = +this.value; syncLabels(); run(); };
+  $('inp-C').oninput = function () { P.C = expSlider(+this.value); syncLabels(); run(); };
+  $('inp-gamma').oninput = function () { P.gamma = expSlider(+this.value); syncLabels(); run(); };
+  $('inp-deg').oninput = function () { P.deg = +this.value; syncLabels(); run(); };
+  $('btn-fit').onclick = function () { run(); };
+  $('btn-test').onclick = function () {
+    var b = this; b.disabled = true; b.textContent = '运行中…';
+    setTimeout(function () { runTests(); b.disabled = false; b.textContent = '运行全部自检'; }, 10);
+  };
+  window.addEventListener('resize', function () { drawDecision($('cv-main')); drawObj($('cv-obj')); drawAlpha($('cv-alpha')); });
+
+  syncLabels();
+  run();
+  runTests();
+})(); }
+</script>
+</body>
+</html>

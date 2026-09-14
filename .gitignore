@@ -1,0 +1,5 @@
+_*.log
+_*.txt
+_*.json
+_probe.txt
+_smoke.log
