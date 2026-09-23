@@ -1,5 +1,12 @@
 # svm-forge · 支持向量机与核方法实验室
 
+<p align="center">
+  <a href="https://github.com/CJX0712/svm-forge/actions/workflows/ci.yml"><img src="https://github.com/CJX0712/svm-forge/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/CJX0712/svm-forge/releases"><img src="https://img.shields.io/github/v/release/CJX0712/svm-forge?sort=semver" alt="release"></a>
+  <a href="https://github.com/CJX0712/svm-forge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/CJX0712/svm-forge" alt="license"></a>
+  <img src="https://img.shields.io/badge/author-%E6%99%A8%E6%98%9F-1f6feb" alt="author">
+</p>
+
 从**对偶问题**出发，把硬间隔/软间隔 SVM 的每个环节都做成可暴力对拍的**精确**算法，零依赖单文件 HTML。
 
 核心卖点不是"画条分界线"，而是这三件事：
